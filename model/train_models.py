@@ -1,75 +1,358 @@
+
 import json
 
 import joblib
 import pandas as pd
-from sklearn.linear_model import LogisticRegression, logisticRegression
+
+from sklearn.calibration import CalibratedClassifierCV
+from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import train_test_split
 from sklearn.naive_bayes import GaussianNB
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.pipeline import make_pipeline
-from sklearn.preprocessing import StandardScaler 
+from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 
+from common import (
+    METRIC_NAMES,
+    MODEL_DIR,
+    MODEL_FILES,
+    ROOT,
+    TARGET,
+    compute_metrics,
+)
 
-from common import METRICS_NAMES, MODEL_DIR, MODEL_FILES, ROOT, TARGET, compute_metrics
+
+# ==================================================
+# 1. CONFIGURATION
+# ==================================================
+
+DATA_FILE = ROOT / "model" / "breast+cancer+wisconsin+diagnostic.csv"
 
 
-## ---------------CONFIG------------------
-DATA_FILE = ROOT / "D:OCT_31st/breast+cancer+wisconsin+diagnostic.csv"  # your downloaded dataset
-TARGET_COL = "diagnosis"               # M = malignant, B = benign
-# -------------------------------------------
+TARGET_COL = "Diagnosis"
 
-MODEL_DIR.mkdir(exist_ok=True)
+RANDOM_STATE = 42
+TEST_SIZE = 0.20
+
+
+# ==================================================
+# 2. CREATE MODEL DIRECTORY
+# ==================================================
+
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+
+# ==================================================
+# 3. LOAD DATASET
+# ==================================================
+
+if not DATA_FILE.exists():
+    raise FileNotFoundError(
+        f"Dataset not found: {DATA_FILE}"
+    )
 
 df = pd.read_csv(DATA_FILE)
-print("Columns found:", df.columns.tolist())
-df = df.drop(columns=["id", "Id", "ID", "Unnamed: 32"], errors="ignore").dropna()
 
-df[TARGET_COL] = df[TARGET_COL].astype(str).str.strip().str.upper().map({"B": 0, "M": 1})
-if df[TARGET_COL].isna().any():
-        raise ValueError("Target column contains values other than 'M' and 'B'")
+print("\nDataset loaded successfully!")
 
-y = df[TARGET_COL].astype(int)
-x = df.drop(columns=[TARGET_COL]).astype(float)
-class_names = ["Benign", "Malignant"]
+print("Original columns:", df.columns.tolist())
 
-print(f"Rows: {x.shape[0]} | Features: {x.shape[1]}")
-assert x.shape[0] >= 500, "Need at least 500 instances"
-assert x.shape[0] >= 12, "Need at least 12 features"
+# Handle target column capitalization differences
+target_matches = [
+    column for column in df.columns
+    if column.strip().lower() == TARGET_COL.lower()
+]
+
+if not target_matches:
+    raise ValueError(
+        f"Target column '{TARGET_COL}' not found."
+    )
+
+actual_target_col = target_matches[0]
+
+
+# ==================================================
+# 4. DATA PREPROCESSING
+# ==================================================
+
+# Remove unnecessary ID columns
+df = df.drop(
+    columns=[
+        column for column in df.columns
+        if column.strip().lower() in [
+            "id",
+            "unnamed: 32"
+        ]
+    ],
+    errors="ignore"
+)
+
+# Remove rows containing missing values
+df = df.dropna().copy()
+
+# Encode target variable
+# B = 0 (Benign)
+# M = 1 (Malignant)
+
+df[actual_target_col] = (
+    df[actual_target_col]
+    .astype(str)
+    .str.strip()
+    .str.upper()
+    .map({
+        "B": 0,
+        "M": 1
+    })
+)
+
+if df[actual_target_col].isna().any():
+    raise ValueError(
+        "Target column contains invalid values. "
+        "Expected only B and M."
+    )
+
+# Separate features and target
+y = df[actual_target_col].astype(int)
+
+x = df.drop(
+    columns=[actual_target_col]
+)
+
+# Convert feature columns to numeric values
+x = x.apply(pd.to_numeric, errors="raise")
+
+if not x.apply(lambda col: pd.api.types.is_numeric_dtype(col)).all():
+    raise ValueError("All features must be numeric.")
+
+if x.isna().any().any():
+    raise ValueError("Feature columns contain missing values.")
+
+class_names = [
+    "Benign",
+    "Malignant"
+]
+
+print("\nPreprocessing completed!")
+
+print("Number of rows:", x.shape[0])
+print("Number of features:", x.shape[1])
+print("\nTarget distribution:")
+print(y.value_counts().sort_index())
+
+assert x.shape[0] >= 500, (
+    "Dataset must contain at least 500 rows."
+)
+
+assert x.shape[1] >= 12, (
+    "Dataset must contain at least 12 features."
+)
+
+assert set(y.unique()) == {0, 1}, (
+    "Both target classes must be present."
+)
+
+
+# ==================================================
+# 5. TRAIN-TEST SPLIT
+# ==================================================
 
 x_train, x_test, y_train, y_test = train_test_split(
-                       x, y, test_size=0.2, stratify=y, random_state=42)
+    x,
+    y,
+    test_size=TEST_SIZE,
+    stratify=y,
+    random_state=RANDOM_STATE
+)
+
+print("\nTrain-test split completed!")
+
+print("Training samples:", len(x_train))
+print("Testing samples:", len(x_test))
+
+
+# ==================================================
+# 6. DEFINE CLASSIFICATION MODELS
+# ==================================================
 
 models = {
-       "Logistic Regression": make_pipeline(StandardScaler(), LogisticRegression(max_iter=5000)),
-       "Decision Tree": DecisionTreeClassifier(random_state=42),
-       "K-Nearest Neighbours": make_pipeline(StandardScaler(), KNeighborsClassifier(n_neighbors=5)),
-       "Naive Bayes (Gaussian)": GaussianNB(),
-       "Support Vector Machine": make_pipeline(StandardScaler(), SVC(probability=True, random_state=42)),
-   }
+
+    "Logistic Regression": make_pipeline(
+        StandardScaler(),
+        LogisticRegression(
+            max_iter=5000,
+            random_state=RANDOM_STATE
+        )
+    ),
+
+    "Decision Tree": DecisionTreeClassifier(
+        random_state=RANDOM_STATE
+    ),
+
+    "K-Nearest Neighbours": make_pipeline(
+        StandardScaler(),
+        KNeighborsClassifier(
+            n_neighbors=5
+        )
+    ),
+
+    "Naive Bayes (Gaussian)": GaussianNB(),
+
+    "Support Vector Machine": CalibratedClassifierCV(
+        estimator=make_pipeline(
+            StandardScaler(),
+            SVC(
+                random_state=RANDOM_STATE
+            )
+        ),
+        ensemble=False,
+        cv=5
+    ),
+
+}
+
+
+# ==================================================
+# 7. TRAIN AND EVALUATE MODELS
+# ==================================================
+
 results = {}
+
 for name, model in models.items():
-        model.fit(x_train, y_train)
-        _, results[name] = compute_metrics(model, x_test, y_test)
-        joblib.dump(model, MODEL_DIR / MODEL_FILES[name])
 
-(MODEL_DIR / "feature_columns.json").write_text(json.dumps(list(x.columns)))
-(MODEL_DIR / "class_names.json").write_text(json.dumps(class_names))
-(MODEL_DIR / "metrics.json").write_text(json.dumps(results, indent=2))
+    print(f"\nTraining model: {name}")
+
+    # Train model
+    model.fit(
+        x_train,
+        y_train
+    )
+
+    # Calculate predictions and metrics
+    predictions, metrics = compute_metrics(
+        model,
+        x_test,
+        y_test
+    )
+
+    results[name] = metrics
+
+    # Save trained model using predefined filename
+    model_filename = MODEL_FILES[name]
+
+    model_path = MODEL_DIR / model_filename
+
+    joblib.dump(
+        model,
+        model_path
+    )
+
+    print("Model saved:", model_path.name)
+
+    print("Evaluation metrics:")
+
+    for metric, value in metrics.items():
+        print(f"{metric}: {value:.4f}")
 
 
-test = x.loc[y_test.index].copy()
+# ==================================================
+# 8. SAVE FEATURE COLUMNS AND CLASS NAMES
+# ==================================================
+
+feature_columns = list(x.columns)
+
+(MODEL_DIR / "feature_columns.json").write_text(
+    json.dumps(feature_columns, indent=2),
+    encoding="utf-8"
+)
+
+(MODEL_DIR / "class_names.json").write_text(
+    json.dumps(class_names, indent=2),
+    encoding="utf-8"
+)
+
+
+# ==================================================
+# 9. SAVE EVALUATION METRICS
+# ==================================================
+
+(MODEL_DIR / "metrics.json").write_text(
+    json.dumps(results, indent=2),
+    encoding="utf-8"
+)
+
+
+# ==================================================
+# 10. SAVE TEST DATA
+# ==================================================
+
+test = x_test.copy()
+
 test[TARGET] = y_test
-test.to_csv(ROOT / "test_data.csv", index=False)
 
-lines = ["|Model | " + " | ".join(METRICS_NAMES) + " |",
-         "|---|" + "---|" * len(METRICS_NAMES)]
+test.to_csv(
+    ROOT / "test_data.csv",
+    index=False
+)
 
-for name, r in results. items():
-           lines.append(f"| {name} | " + " | ".join(f"{r[m]:.4f}" for m in METRICS_NAMES) + " |")
-(ROOT / "results_table.md").write_text("\n".join)(lines)
 
-print("\n".join(lines))
-print("Saved: model/, test_data.csv, results_table.md")
+# ==================================================
+# 11. GENERATE MODEL COMPARISON TABLE
+# ==================================================
 
+lines = [
+    "| Model | " + " | ".join(METRIC_NAMES) + " |",
+    "|---|" + "---|" * len(METRIC_NAMES)
+]
+
+for name, metrics in results.items():
+
+    metric_values = [
+        f"{metrics[metric]:.4f}"
+        for metric in METRIC_NAMES
+    ]
+
+    lines.append(
+        f"| {name} | "
+        + " | ".join(metric_values)
+        + " |"
+    )
+
+results_table = "\n".join(lines)
+
+(ROOT / "results_table.md").write_text(
+    results_table,
+    encoding="utf-8"
+)
+
+
+# ==================================================
+# 12. FINAL OUTPUT
+# ==================================================
+
+print("\n" + "=" * 60)
+
+print("MODEL EVALUATION RESULTS")
+
+print("=" * 60)
+
+print(results_table)
+
+print("\nTraining completed successfully!")
+
+print("\nGenerated files:")
+
+print("1. Trained models:", MODEL_DIR)
+
+print("2. Feature columns:", MODEL_DIR / "feature_columns.json")
+
+print("3. Class names:", MODEL_DIR / "class_names.json")
+
+print("4. Evaluation metrics:", MODEL_DIR / "metrics.json")
+
+print("5. Test dataset:", ROOT / "test_data.csv")
+
+print("6. Model comparison:", ROOT / "results_table.md")
+
+print("\n" + "=" * 60)
