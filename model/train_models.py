@@ -1,7 +1,10 @@
 
+import sys
 import json
+from pathlib import Path
 
 import joblib
+import numpy as np
 import pandas as pd
 
 from sklearn.calibration import CalibratedClassifierCV
@@ -14,7 +17,23 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 
-from common import (
+
+# ==================================================
+# 1. PROJECT ROOT CONFIGURATION
+# ==================================================
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+# Add project root to Python import path
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+
+# ==================================================
+# 2. IMPORT COMMON MODULE
+# ==================================================
+
+from model.common import (
     METRIC_NAMES,
     MODEL_DIR,
     MODEL_FILES,
@@ -25,16 +44,19 @@ from common import (
 
 
 # ==================================================
-# 1. CONFIGURATION
+# 3. CONFIGURATION
 # ==================================================
 
-DATA_FILE = ROOT / "model" / "breast+cancer+wisconsin+diagnostic.csv"
-
+DATA_FILE = (
+    ROOT / "model" /
+    "breast+cancer+wisconsin+diagnostic.csv"
+)
 
 TARGET_COL = "Diagnosis"
 
 RANDOM_STATE = 42
 TEST_SIZE = 0.20
+
 
 
 # ==================================================
@@ -213,6 +235,7 @@ models = {
 }
 
 
+
 # ==================================================
 # 7. TRAIN AND EVALUATE MODELS
 # ==================================================
@@ -221,39 +244,47 @@ results = {}
 
 for name, model in models.items():
 
-    print(f"\nTraining model: {name}")
+    print("\n" + "=" * 60)
+    print("Training model:", name)
+    print("=" * 60)
 
     # Train model
     model.fit(
         x_train,
-        y_train
+        y_train,
     )
 
-    # Calculate predictions and metrics
-    predictions, metrics = compute_metrics(
+    # Calculate evaluation metrics
+    # Returns a dictionary with six metrics
+    metrics = compute_metrics(
         model,
         x_test,
-        y_test
+        y_test,
     )
 
+    # Store model evaluation results
     results[name] = metrics
 
-    # Save trained model using predefined filename
+    # Save trained model
     model_filename = MODEL_FILES[name]
 
     model_path = MODEL_DIR / model_filename
 
     joblib.dump(
         model,
-        model_path
+        model_path,
     )
 
-    print("Model saved:", model_path.name)
+    print("\nModel saved:", model_path)
 
-    print("Evaluation metrics:")
+    print("\nEvaluation metrics:")
 
-    for metric, value in metrics.items():
-        print(f"{metric}: {value:.4f}")
+    for metric in METRIC_NAMES:
+
+        print(
+            f"{metric}: {metrics[metric]:.4f}"
+        )
+
 
 
 # ==================================================

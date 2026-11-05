@@ -12,21 +12,18 @@ from sklearn.metrics import (
 
 
 # ==================================================
-# PROJECT CONFIGURATION
+# 1. PROJECT CONFIGURATION
 # ==================================================
 
-# Project root directory
 ROOT = Path(__file__).resolve().parent.parent
 
-# Directory to store trained models and evaluation metrics
 MODEL_DIR = ROOT / "model_artifacts"
 
-# Target column used in saved test data
 TARGET = "target"
 
 
 # ==================================================
-# MODEL FILE NAMES
+# 2. MODEL FILE MAPPING
 # ==================================================
 
 MODEL_FILES = {
@@ -39,7 +36,7 @@ MODEL_FILES = {
 
 
 # ==================================================
-# EVALUATION METRIC NAMES
+# 3. EVALUATION METRIC NAMES
 # ==================================================
 
 METRIC_NAMES = [
@@ -53,66 +50,61 @@ METRIC_NAMES = [
 
 
 # ==================================================
-# COMPUTE CLASSIFICATION METRICS
+# 4. COMPUTE MODEL EVALUATION METRICS
 # ==================================================
 
 def compute_metrics(model, x, y):
-    """
-    Calculate classification evaluation metrics.
 
-    Class 0 = Benign
-    Class 1 = Malignant
-
-    Returns:
-        predictions: Predicted class labels.
-        metrics: Dictionary containing six evaluation metrics.
-    """
-
-    # Generate class predictions
+    # Generate predictions
     predictions = model.predict(x)
 
-    # Generate probability predictions
-    probabilities = model.predict_proba(x)
+    # Generate positive-class probabilities
+    if not hasattr(model, "predict_proba"):
 
-    # Find the probability column corresponding to malignant (class 1)
-    positive_class_index = list(model.classes_).index(1)
+        raise ValueError(
+            "The model must support predict_proba() "
+            "to calculate AUC."
+        )
 
-    malignant_probabilities = probabilities[:, positive_class_index]
+    probabilities = model.predict_proba(x)[:, 1]
 
     # Calculate evaluation metrics
     metrics = {
-        "Accuracy": accuracy_score(y, predictions),
+
+        "Accuracy": accuracy_score(
+            y,
+            predictions,
+        ),
 
         "AUC": roc_auc_score(
             y,
-            malignant_probabilities
+            probabilities,
         ),
 
         "Precision": precision_score(
             y,
             predictions,
-            pos_label=1,
-            zero_division=0
+            zero_division=0,
         ),
 
         "Recall": recall_score(
             y,
             predictions,
-            pos_label=1,
-            zero_division=0
+            zero_division=0,
         ),
 
         "F1": f1_score(
             y,
             predictions,
-            pos_label=1,
-            zero_division=0
+            zero_division=0,
         ),
 
         "MCC": matthews_corrcoef(
             y,
-            predictions
+            predictions,
         ),
+
     }
 
-    return predictions, metrics
+    # Return one dictionary containing all six metrics
+    return metrics
