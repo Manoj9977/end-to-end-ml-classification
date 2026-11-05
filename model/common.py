@@ -3,17 +3,17 @@ from pathlib import Path
 
 from sklearn.metrics import (
     accuracy_score,
-    roc_auc_score,
-    precision_score,
-    recall_score,
     f1_score,
     matthews_corrcoef,
+    precision_score,
+    recall_score,
+    roc_auc_score,
 )
 
 
-# ==================================================
-# 1. PROJECT CONFIGURATION
-# ==================================================
+# ============================================================
+# 1. PROJECT PATH CONFIGURATION
+# ============================================================
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -22,9 +22,9 @@ MODEL_DIR = ROOT / "model_artifacts"
 TARGET = "target"
 
 
-# ==================================================
+# ============================================================
 # 2. MODEL FILE MAPPING
-# ==================================================
+# ============================================================
 
 MODEL_FILES = {
     "Logistic Regression": "logistic_regression.joblib",
@@ -35,9 +35,9 @@ MODEL_FILES = {
 }
 
 
-# ==================================================
+# ============================================================
 # 3. EVALUATION METRIC NAMES
-# ==================================================
+# ============================================================
 
 METRIC_NAMES = [
     "Accuracy",
@@ -49,53 +49,72 @@ METRIC_NAMES = [
 ]
 
 
-# ==================================================
+# ============================================================
 # 4. COMPUTE MODEL EVALUATION METRICS
-# ==================================================
+# ============================================================
 
 def compute_metrics(model, x, y):
+    """
+    Calculate classification evaluation metrics.
 
-    # Generate predictions
+    Returns:
+        dict: Accuracy, AUC, Precision, Recall, F1 and MCC.
+
+    Note:
+        This function consistently returns a dictionary.
+        It does not return (predictions, metrics).
+    """
+
+    # Generate class predictions
     predictions = model.predict(x)
 
     # Generate positive-class probabilities
     if not hasattr(model, "predict_proba"):
-
         raise ValueError(
-            "The model must support predict_proba() "
-            "to calculate AUC."
+            "The selected model does not support predict_proba()."
         )
 
-    probabilities = model.predict_proba(x)[:, 1]
+    probabilities = model.predict_proba(x)
 
-    # Calculate evaluation metrics
+    # Locate the probability column for positive class 1
+    model_classes = list(model.classes_)
+
+    if 1 not in model_classes:
+        raise ValueError(
+            "Positive class 1 is missing from the trained model."
+        )
+
+    positive_class_index = model_classes.index(1)
+
+    positive_probabilities = probabilities[:, positive_class_index]
+
+    # Calculate metrics
     metrics = {
-
-        "Accuracy": accuracy_score(
-            y,
-            predictions,
-        ),
+        "Accuracy": accuracy_score(y, predictions),
 
         "AUC": roc_auc_score(
             y,
-            probabilities,
+            positive_probabilities,
         ),
 
         "Precision": precision_score(
             y,
             predictions,
+            pos_label=1,
             zero_division=0,
         ),
 
         "Recall": recall_score(
             y,
             predictions,
+            pos_label=1,
             zero_division=0,
         ),
 
         "F1": f1_score(
             y,
             predictions,
+            pos_label=1,
             zero_division=0,
         ),
 
@@ -103,8 +122,6 @@ def compute_metrics(model, x, y):
             y,
             predictions,
         ),
-
     }
 
-    # Return one dictionary containing all six metrics
     return metrics
