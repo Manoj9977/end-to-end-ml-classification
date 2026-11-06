@@ -118,10 +118,11 @@ end-to-end-ml-classification/
 - Pandas
 - Scikit-learn
 - Joblib
-- Matplotlib (if used for visualizations)
-- Git
+- Matplotlib
+- seaborn
+- streamlit
 - GitHub
-- Jupyter Notebook (if used for development)
+- Vscode (used for development)
 
 ## 8. Installation and Setup
 
